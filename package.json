@@ -1,0 +1,1 @@
+{"name":"monitor-proposicoes-macapa","version":"1.0.0","private":true,"scripts":{"start":"node monitor.js"},"dependencies":{"nodemailer":"^6.9.14"}}

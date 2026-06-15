@@ -1,6 +1,8 @@
 name: Monitor Proposicoes Macapa
 
 on:
+  schedule:
+    - cron: '28 8 * * 1-5'   # 05:28 BRT
   workflow_dispatch:
 
 permissions:

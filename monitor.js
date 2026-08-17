@@ -19,7 +19,8 @@ const CONTROLE03_BASIC_AUTH = process.env.CONTROLE03_BASIC_AUTH || '';
 
 
 const CASA = 'CMMACAPA';
-const BASE = 'https://macapa.wdsolucoes.com.br/';
+const BASE = 'https://macapa.n2gov.com.br/';
+const API_BASE = 'https://api_macapa.n2gov.com.br';
 const LISTA = BASE + '?sec=nlistaproposicoes';
 const ARQUIVO_ESTADO = 'estado.json';
 const MAX_PAGES = Number(process.env.MAX_PAGES || 5);
@@ -56,35 +57,45 @@ function escapeHtml(texto) {
   return String(texto ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-async function buscarPagina(pagina) {
-  const url = pagina === 1 ? LISTA : LISTA + '&page=' + pagina;
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 Chrome/120', Accept: 'text/html' }, signal: AbortSignal.timeout(30000) });
+async function buscarPaginaApi(offset) {
+  const url = new URL('/proposicoes', API_BASE);
+  url.searchParams.set('limit', '20');
+  url.searchParams.set('offset', String(offset));
+  url.searchParams.set('docadm', 'N');
+  url.searchParams.set('norma', 'N');
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 Chrome/120',
+      'Accept': 'application/json',
+      'Origin': BASE.replace(/\/$/, ''),
+      'Referer': BASE + 'processos',
+    },
+    signal: AbortSignal.timeout(30000),
+  });
   if (!res.ok) throw new Error('HTTP ' + res.status + ' em ' + url);
-  return res.text();
+  const json = await res.json();
+  if (!Array.isArray(json)) throw new Error('Resposta inesperada da API Macapá');
+  return json;
 }
 
-function normalizarLinha(texto) {
-  const limpo = limparHtml(texto);
-  const match = limpo.match(/^(\d{4})\s*-\s*([A-Z0-9-]+)\s+([\d.]+)\/(.*?)(?:Proc:\s*([\d.]+)\s*-?)?$/i);
-  if (!match) return { ano: '-', tipo: 'OUTROS', numero: '-', ementa: limpo, processo: '' };
+function normalizarApi(item) {
+  const proponente = Array.isArray(item.proponente)
+    ? item.proponente.map(p => [p.nome, p.partido ? '(' + p.partido + ')' : ''].filter(Boolean).join(' ')).join(', ')
+    : (item.inline_proponente || '');
   return {
-    ano: match[1],
-    tipo: match[2].toUpperCase(),
-    numero: match[3].replace(/\D/g, ''),
-    ementa: String(match[4] || '').trim(),
-    processo: String(match[5] || '').replace(/\D/g, ''),
+    id: String(item.ID || item.id || ''),
+    ano: String(item.ano || '-'),
+    tipo: String(item.sigla_especie || item.especie || 'OUTROS').toUpperCase(),
+    numero: String(item.numero || '').replace(/\D/g, ''),
+    ementa: limparHtml(item.ementa || item.resumo || ''),
+    processo: String(item.expediente || ''),
+    autor: proponente,
+    link: item.url || (BASE + 'processo/' + item.ID),
   };
 }
 
-function extrairProposicoes(html) {
-  const itens = [];
-  const re = /<a\s+href=["']\?sec=proposicao&id=(\d+)["']\s+class=["']p_element["'][^>]*>[\s\S]*?<span\s+class=["']pe_tit["']>([\s\S]*?)<\/span>[\s\S]*?<\/a>/gi;
-  for (const match of html.matchAll(re)) {
-    const normal = normalizarLinha(match[2]);
-    const id = String(match[1]);
-    itens.push({ id, ...normal, link: BASE + '?sec=proposicao&id=' + id });
-  }
-  return itens;
+function extrairProposicoes(json) {
+  return json.map(normalizarApi).filter(item => item.id);
 }
 
 function numeroInteiro(p) {
@@ -138,8 +149,7 @@ async function buscarProposicoes(idsVistos = new Set()) {
   const todas = [];
   const vistosRodada = new Set();
   for (let pagina = 1; pagina <= MAX_PAGES; pagina++) {
-    const html = await buscarPagina(pagina);
-    const itens = extrairProposicoes(html);
+    const itens = extrairProposicoes(await buscarPaginaApi((pagina - 1) * 20));
     console.log('Página ' + pagina + ': ' + itens.length + ' proposições');
     if (!itens.length) break;
     let paginaTemVisto = false;
@@ -346,6 +356,20 @@ function radar03Numero(p) {
   }
   const m = radar03Identificacao(p).match(/(S\/N|\d+\s*\/\s*\d{2,4}|\/\d{2,4}|\d+)/i);
   return m ? m[1].replace(/\s+/g, '') : '';
+}
+
+function radar03NumeroPartes(p) {
+  const raw = radar03Numero(p);
+  const match = String(raw || '').match(/(\d+)\s*(?:\/\s*(\d{2,4}))?/);
+  if (!match) return null;
+  const numero = match[1];
+  const ano = match[2] || String(p?.ano || p?.ano_proposicao || new Date().getFullYear());
+  const anoFull = ano.length === 2 ? '20' + ano : ano;
+  return {
+    numero,
+    numeroInt: Number.parseInt(numero, 10),
+    ano: anoFull,
+  };
 }
 
 function radar03BlocoEmail(novas) {

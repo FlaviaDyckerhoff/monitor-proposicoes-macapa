@@ -1,3 +1,13 @@
+const FICHA_URL = process.env.FICHA_URL || 'https://doe.monitorlegislativo.com.br/ficha';
+
+function fichaEmailButtonHtml() {
+  return '<div style="background:#eef6ff;border:1px solid #c7ddf2;border-radius:6px;padding:11px 13px;margin:12px 0;color:#173d63;font-size:13px;line-height:1.45">' +
+    '<strong>Ficha</strong><br>' +
+    '<span>Cole o link oficial de uma proposição para criar ficha e acelerar a revisão/cadastro.</span><br>' +
+    '<a href="' + FICHA_URL + '" style="display:inline-block;background:#0f3d5c;color:white;text-decoration:none;border-radius:4px;padding:8px 11px;font-weight:bold;margin-top:8px">Criar ficha</a>' +
+    '</div>';
+}
+
 const CONTROLE03_FORCE_LATEST = String(process.env.CONTROLE03_FORCE_LATEST || '').trim() === '1';
 const fs = require('fs');
 const RADAR03_URL = process.env.RADAR03_URL || 'https://doe.monitorlegislativo.com.br/controle03/';
@@ -13,7 +23,6 @@ const BASE = 'https://macapa.wdsolucoes.com.br/';
 const LISTA = BASE + '?sec=nlistaproposicoes';
 const ARQUIVO_ESTADO = 'estado.json';
 const MAX_PAGES = Number(process.env.MAX_PAGES || 5);
-
 function carregarEstado() {
   if (fs.existsSync(ARQUIVO_ESTADO)) return JSON.parse(fs.readFileSync(ARQUIVO_ESTADO, 'utf8'));
   return { proposicoes_vistas: [], ultimos_por_tipo_ano: {}, ultima_execucao: '' };
@@ -216,7 +225,7 @@ const CLIENTES_NOMES_PROPRIOS = [
   'Wild Fork', 'Ajinomoto', 'Vibra', 'Vibra Energia',
   'BR Distribuidora', 'Raízen', 'Raizen', 'Mindlab',
   'ABVTEX', 'Semove', 'Barcas', 'Seta',
-  'Nova Infra', 'BRT'
+  'Nova Infra'
 ];
 
 const CLIENTES_INATIVOS_NAO_DESTACAR = [
@@ -568,7 +577,7 @@ async function enviarEmail(novas, alertas = []) {
     from: '"Monitor ' + CASA + '" <' + process.env.EMAIL_REMETENTE + '>',
     to: process.env.EMAIL_DESTINO,
     subject: assuntoEmailClienteCitado(novas, '🏛️ Macapá: ' + novas.length + ' nova(s) proposição(ões)' + (alertas.length ? ' | alerta sequência' : '') + ' — ' + new Date().toLocaleDateString('pt-BR')),
-    html: '<div style="font-family:Arial,sans-serif;max-width:960px"><h2>Macapá — ' + novas.length + ' nova(s) proposição(ões)</h2>' + renderAlertasSaltos(alertas) + renderRadar03EmailButton(novas) + '<table style="border-collapse:collapse;width:100%">' + linhas + '</table><p><a href="' + LISTA + '">Fonte oficial</a></p></div>',
+    html: fichaEmailButtonHtml() + '<div style="font-family:Arial,sans-serif;max-width:960px"><h2>Macapá — ' + novas.length + ' nova(s) proposição(ões)</h2>' + renderAlertasSaltos(alertas) + renderRadar03EmailButton(novas) + '<table style="border-collapse:collapse;width:100%">' + linhas + '</table><p><a href="' + LISTA + '">Fonte oficial</a></p></div>',
   });
 }
 

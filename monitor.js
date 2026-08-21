@@ -261,7 +261,7 @@ function clientesCitadosNaProposicao(p) {
     const re = new RegExp('(^|[^A-Za-zÀ-ÿ0-9])' + escaped + '([^A-Za-zÀ-ÿ0-9]|$)', 'i');
     if (re.test(texto) && !achados.some(a => a.toLowerCase() === nome.toLowerCase())) achados.push(nome);
   }
-  return achados;
+  return promoverInteresseClienteProposicao(p, achados, mlClientInterestContext());
 }
 
 function anotarClientesCitados(proposicoes) {
@@ -594,6 +594,25 @@ async function enviarEmail(novas, alertas = []) {
     return;
   }
   const nodemailer = require('nodemailer');
+let promoverInteresseClienteProposicao = (_item, atuais) => Array.isArray(atuais) ? atuais : [];
+try {
+  try {
+    ({ promoverInteresseClienteProposicao } = require('./client_interest_matcher_js'));
+  } catch (_localErr) {
+    ({ promoverInteresseClienteProposicao } = require('../../agents/pautas/client_interest_matcher_js'));
+  }
+} catch (err) {
+  console.warn('⚠️ Matcher cliente/palavra comum indisponível; usando destaque legado: ' + err.message);
+}
+
+function mlClientInterestContext() {
+  return {
+    uf: typeof CLIENT_INTEREST_UF !== 'undefined' ? CLIENT_INTEREST_UF : (process.env.CLIENT_INTEREST_UF || process.env.UF || ''),
+    municipio: typeof CLIENT_INTEREST_MUNICIPIO !== 'undefined' ? CLIENT_INTEREST_MUNICIPIO : (process.env.CLIENT_INTEREST_MUNICIPIO || process.env.MUNICIPIO || ''),
+    casa: typeof CASA_RADAR03 !== 'undefined' ? CASA_RADAR03 : (process.env.CASA_RADAR03 || process.env.CASA || ''),
+  };
+}
+
   const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.EMAIL_REMETENTE, pass: process.env.EMAIL_SENHA } });
   const novasOrdenadas = [...novas].sort(compararProposicoesEmail);
   const linhas = novasOrdenadas.map(p => '<tr><td style="padding:8px;border-bottom:1px solid #eee"><a href="' + escapeHtml(p.link) + '"><strong>' + escapeHtml(p.tipo) + ' ' + escapeHtml(p.numero) + '/' + escapeHtml(p.ano) + '</strong></a><br><span style="font-size:11px;color:#667085">Proc. ' + escapeHtml(p.processo || '-') + '</span></td><td style="padding:8px;border-bottom:1px solid #eee">' + renderizarEmentaCliente(p) + '</td></tr>').join('');

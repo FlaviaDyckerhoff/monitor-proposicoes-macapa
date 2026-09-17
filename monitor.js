@@ -9,7 +9,11 @@ function fichaEmailButtonHtml() {
 }
 
 const CONTROLE03_FORCE_LATEST = String(process.env.CONTROLE03_FORCE_LATEST || '').trim() === '1';
+const DRY_RUN = process.env.DRY_RUN === '1';
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 const RADAR03_URL = process.env.RADAR03_URL || 'https://doe.monitorlegislativo.com.br/controle03/';
 const CASA_RADAR03 = process.env.CASA_RADAR03 || 'AP - Macapá';
 const CONTROLE03_STATE_URL = process.env.CONTROLE03_STATE_URL || new URL('api/state', RADAR03_URL).toString();
@@ -552,7 +556,7 @@ async function sincronizarRadar03(novas) {
     });
 
     const postResp = await fetch(CONTROLE03_STATE_URL, {
-      method: 'POST', headers: radar03AuthHeaders(), body: JSON.stringify({ data, merge_casas: [CASA_RADAR03] }),
+      method: 'POST', headers: radar03AuthHeaders(), body: JSON.stringify({ data: [casa], merge_casas: [CASA_RADAR03] }),
     });
     if (!postResp.ok) throw new Error('POST ' + postResp.status);
     console.log('✅ Radar 03 sincronizado: ' + CASA_RADAR03 + ' · ' + resumo.map(item => item.tipo + ' ' + item.numero + '/' + item.ano).join(' | '));
@@ -612,18 +616,30 @@ async function enviarEmail(novas, alertas = []) {
     alertas.forEach(a => console.log('[ALERTA_SEQUENCIA] ' + a.tipo + '/' + a.ano + ': ' + a.anterior + ' -> ' + a.atual + '; faltantes: ' + a.faltantes.join(', ')));
     return;
   }
-  const nodemailer = require('nodemailer');
-
-
-  const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.EMAIL_REMETENTE, pass: process.env.EMAIL_SENHA } });
   const novasOrdenadas = [...novas].sort(compararProposicoesEmail);
   const linhas = novasOrdenadas.map(p => '<tr><td style="padding:8px;border-bottom:1px solid #eee"><a href="' + escapeHtml(p.link) + '"><strong>' + escapeHtml(p.tipo) + ' ' + escapeHtml(p.numero) + '/' + escapeHtml(p.ano) + '</strong></a><br><span style="font-size:11px;color:#667085">Proc. ' + escapeHtml(p.processo || '-') + '</span></td><td style="padding:8px;border-bottom:1px solid #eee">' + renderizarEmentaCliente(p) + '</td></tr>').join('');
-  await transporter.sendMail({
-    from: '"Monitor ' + CASA + '" <' + process.env.EMAIL_REMETENTE + '>',
-    to: process.env.EMAIL_DESTINO,
-    subject: assuntoEmailClienteCitado(novas, '🏛️ Macapá: ' + novas.length + ' nova(s) proposição(ões)' + (alertas.length ? ' | alerta sequência' : '') + ' — ' + new Date().toLocaleDateString('pt-BR')),
-    html: fichaEmailButtonHtml() + '<div style="font-family:Arial,sans-serif;max-width:960px"><h2>Macapá — ' + novas.length + ' nova(s) proposição(ões)</h2>' + renderAlertasSaltos(alertas) + renderRadar03EmailButton(novas) + '<table style="border-collapse:collapse;width:100%">' + linhas + '</table><p><a href="' + LISTA + '">Fonte oficial</a></p></div>',
-  });
+  const subject = assuntoEmailClienteCitado(novas, '🏛️ Macapá: ' + novas.length + ' nova(s) proposição(ões)' + (alertas.length ? ' | alerta sequência' : '') + ' — ' + new Date().toLocaleDateString('pt-BR'));
+  const html = fichaEmailButtonHtml() + '<div style="font-family:Arial,sans-serif;max-width:960px"><h2>Macapá — ' + novas.length + ' nova(s) proposição(ões)</h2>' + renderAlertasSaltos(alertas) + renderRadar03EmailButton(novas) + '<table style="border-collapse:collapse;width:100%">' + linhas + '</table><p><a href="' + LISTA + '">Fonte oficial</a></p></div>';
+  const destinos = process.env.EMAIL_DESTINO || 'tramitacao@monitorlegislativo.com.br';
+  const tmp = path.join(os.tmpdir(), 'macapa-email-' + Date.now() + '.html');
+  fs.writeFileSync(tmp, html);
+  const script = [
+    'import sys',
+    "sys.path.insert(0, '/root/.openclaw/workspace/agents/shared')",
+    'from notificacoes import enviar_email',
+    'subject = sys.argv[1]',
+    'html_path = sys.argv[2]',
+    'destinos = [d.strip() for d in sys.argv[3].split(",") if d.strip()]',
+    "body = open(html_path, encoding='utf-8').read()",
+    'ok = enviar_email(subject, body, destinatarios=destinos)',
+    'raise SystemExit(0 if ok else 1)',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', script, subject, tmp, destinos], { encoding: 'utf8' });
+  fs.rmSync(tmp, { force: true });
+  if (result.status !== 0) {
+    throw new Error('Falha no envio via Gmail API: ' + (result.stderr || result.stdout || 'sem detalhe'));
+  }
+  console.log('Email enviado via Gmail API com ' + novas.length + ' proposições novas.');
 }
 
 (async () => {
@@ -634,6 +650,10 @@ async function enviarEmail(novas, alertas = []) {
   const novas = proposicoes.filter(p => !ids.has(p.id));
   const { alertas, atuais } = detectarSaltos(proposicoes, estado);
   console.log('Total: ' + proposicoes.length + ' | Novas: ' + novas.length);
+  if (DRY_RUN) {
+    console.log(JSON.stringify({ total: proposicoes.length, novas: novas.length, alertas: alertas.length, amostra: novas.slice(0, 10) }, null, 2));
+    return;
+  }
   if (process.env.SEED_ONLY === '1') {
     proposicoes.forEach(p => ids.add(p.id));
     estado.proposicoes_vistas = Array.from(ids);

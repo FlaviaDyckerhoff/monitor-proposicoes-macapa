@@ -17,6 +17,7 @@ git fetch origin main
 git rebase origin/main
 
 export CONTROLE03_STATE_URL="${CONTROLE03_STATE_URL:-http://127.0.0.1:5017/controle03/api/state}"
+export CONTROLE03_BASIC_AUTH="${CONTROLE03_BASIC_AUTH:-Basic controle03bot}"
 node monitor.js
 git add estado.json
 git diff --cached --quiet || git commit -m "Atualiza estado"
